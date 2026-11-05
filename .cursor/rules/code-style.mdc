@@ -1,0 +1,72 @@
+---
+description: GDScript formatting, naming, static typing, and failure handling for HeliStrike
+globs: "**/*.gd"
+alwaysApply: false
+---
+
+# Formatting and naming
+
+- Indent with tabs. One blank line between functions. Keep trailing commas off single-line calls.
+- Files, functions, signals, and groups are `snake_case`. `class_name` types are `PascalCase`.
+- Constants are `UPPER_SNAKE`. Private methods and private node fields start with `_`.
+- Root scene scripts (`main_menu.gd`, `mission.gd`) omit `class_name`. Scripts constructed with `.new()` declare one.
+- User-facing strings stay short and uppercase (`"MISSION SAVED"`).
+
+```gdscript
+# Do
+signal target_destroyed(target: GroundTarget)
+var _heli: Helicopter
+const SAVE_PATH := "user://HeliStrike_save.json"
+
+# Don't
+signal TargetDestroyed
+var heliNode: Helicopter
+const savePath := "user://HeliStrike_save.json"
+```
+
+# Typing
+
+- Annotate parameters, returns, and member variables. Use `:=` when the right-hand side already has a type.
+- Dictionary payloads from JSON or saves stay `Dictionary`. Narrow them at the boundary with `typeof` and `str` / `int` / `float`.
+- Prefer `Array[String]` or `PackedStringArray` over untyped arrays when the element type is fixed.
+- Cast with `as` and handle a null result before use. Check `is_instance_valid` on nodes that may have been freed.
+
+```gdscript
+# Do
+func clamp_id(id: String) -> String:
+    if id in IDS:
+        return id
+    return "apache"
+
+func _read_save(text: String) -> Dictionary:
+    var parsed: Variant = JSON.parse_string(text)
+    if typeof(parsed) != TYPE_DICTIONARY:
+        return {}
+    return parsed
+
+# Don't
+func clamp_id(id):
+    var data = JSON.parse_string(text)
+    return data["id"]
+```
+
+# Failures
+
+GDScript here does not use exceptions. Missing files and bad JSON return `false` or return early. Do not continue on a null `FileAccess`.
+
+```gdscript
+# Do
+var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+if file == null:
+    return false
+file.store_string(JSON.stringify(payload))
+return true
+
+# Don't
+var file := FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+file.store_string(JSON.stringify(payload))
+```
+
+- Domain outcomes use signals (`crashed`, `destroyed`), not string callbacks.
+- A missing settings file is a quiet return. A failed save that the player asked for returns `false` so the UI can say so.
+- Do not wrap calling code in `push_error` for expected misses. Use `push_error` only when a broken invariant should show in the debugger.

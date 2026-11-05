@@ -1,0 +1,54 @@
+---
+description: Godot 4.6 boundaries for HeliStrike — autoloads, class_name dependencies, thin scenes, and physics layers
+globs: "**/*.gd,**/*.tscn,project.godot"
+alwaysApply: false
+---
+
+# Stack boundaries
+
+- Godot 4.6 GDScript only. Keep Forward Plus and Jolt Physics as set in `project.godot`.
+- No C#, GDExtension, addons, or networked services. Generate meshes, UI, and audio in script.
+- Cross-scene state lives on the `GameState` autoload. Audio playback goes through the `Sfx` autoload.
+- `HeliCatalog`, `HeliBuilder`, `WorldBuilder`, and `ThemeUtil` stay `RefCounted` factories. Do not parent them into the tree.
+- `.tscn` files stay a root node plus one script. Build controls, terrain, and airframes in `_ready` / `_build*`.
+- New autoloads are only for process-lifetime services. One screen does not get an autoload.
+- Scene changes use a `res://` constant. Mission progress is a `GameState.session` dictionary, not node metadata.
+
+# Dependencies
+
+There is no import system. Use a global `class_name`, an autoload, or `preload`.
+
+```gdscript
+# Do: call a class_name that already exists
+var spec := HeliCatalog.spec(id)
+get_tree().change_scene_to_file(MISSION)
+
+# Don't: load a script by path when a class_name exists
+var spec := load("res://scripts/helicopter/heli_catalog.gd").spec(id)
+```
+
+```gdscript
+# Do: preload only to break a cycle or to construct a script local to one scene
+const ControlsOverlay := preload("res://scripts/ui/controls_screen.gd")
+
+# Don't: reach into another scene's node tree for state
+get_node("/root/Mission/Helicopter").hull = 100.0
+```
+
+# Runtime rules
+
+- Find the mission via group `mission`, living targets via group `ground_target`.
+- Physics bits match `project.godot`: world `1`, helicopter `2`, projectiles `4`, targets `8`.
+- Helicopter mask is `1 | 8`. Projectiles use layer `4` and mask `1 | 8`.
+- Nodes that must run while the tree is paused (`GameState`, pause UI, end screen) use `PROCESS_MODE_ALWAYS`. Projectiles stay pausable.
+- Colors, labels, buttons, and panels come from `ThemeUtil`. Airframe numbers come from `HeliCatalog`, not copies in UI scripts.
+
+```gdscript
+# Do: register, then query the group
+add_to_group("ground_target")
+for node in get_tree().get_nodes_in_group("ground_target"):
+    pass
+
+# Don't: add a second palette or a parallel aircraft table in a screen
+label.add_theme_color_override("font_color", Color(0.2, 0.9, 0.3))
+```
