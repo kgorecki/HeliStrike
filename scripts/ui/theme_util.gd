@@ -12,10 +12,26 @@ const DANGER := Color(0.95, 0.25, 0.18)
 const STROKE := Color(0.27, 0.32, 0.18)
 
 
+static var _hud_font: SystemFont
+
+
 static func mono() -> Font:
 	var font := SystemFont.new()
 	font.font_names = PackedStringArray(["Menlo", "Consolas", "Courier New", "monospace"])
 	return font
+
+
+static func hud_font() -> Font:
+	if _hud_font == null:
+		var font := SystemFont.new()
+		font.font_names = PackedStringArray(["Menlo", "Monaco", "Courier New", "Courier"])
+		font.multichannel_signed_distance_field = false
+		font.antialiasing = TextServer.FONT_ANTIALIASING_GRAY
+		font.subpixel_positioning = TextServer.SUBPIXEL_POSITIONING_DISABLED
+		font.allow_system_fallback = true
+		font.fallbacks = Array([ThemeDB.fallback_font])
+		_hud_font = font
+	return _hud_font
 
 
 static func label(text: String, size: int, color: Color = TEXT, align: HorizontalAlignment = HORIZONTAL_ALIGNMENT_LEFT) -> Label:

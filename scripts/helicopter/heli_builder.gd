@@ -257,9 +257,10 @@ static func _add_collision(heli: Helicopter, radius: float, height: float, pos: 
 
 static func _add_ground_ray(heli: Helicopter) -> void:
 	var ray := RayCast3D.new()
-	ray.target_position = Vector3(0, -12, 0)
+	ray.target_position = Vector3(0, -4000, 0)
 	ray.position = Vector3(0, 1.0, 0)
 	ray.collision_mask = 1
+	ray.hit_from_inside = true
 	heli.add_child(ray)
 	heli.ground_ray = ray
 

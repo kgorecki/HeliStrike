@@ -1,0 +1,25 @@
+---
+description: Create or update CHANGELOG.md as part of every request that changes the repo
+alwaysApply: true
+---
+
+# Changelog
+
+Every request that changes the repo must create or update `CHANGELOG.md` in the same change. If the file is missing, create it in Keep a Changelog format with an `## [Unreleased]` section.
+
+- Add the entry under `## [Unreleased]`, at the top of the matching heading.
+- Use only these headings: `Added`, `Changed`, `Fixed`, `Removed`.
+- One line per change: what changed and why. Skip files that did not affect behavior or docs.
+- A request that changes nothing in the repo gets no entry.
+- Do not add a version heading unless the user asks for a release.
+
+```markdown
+# Do
+### Added
+- Pause-menu rebinding with two slots per flight action.
+
+# Don't
+### Added
+- Updated files for the user.
+- Made requested improvements to the codebase.
+```

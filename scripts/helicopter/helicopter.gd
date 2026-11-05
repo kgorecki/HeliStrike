@@ -40,6 +40,8 @@ var hull: float = 100.0
 var cannon_cd: float = 0.0
 var missile_cd: float = 0.0
 var pylon_toggle: bool = false
+var _pylons: Array[Dictionary] = []
+var _selected_pylon: int = 0
 var locked_target: GroundTarget
 var lock_timer: float = 0.0
 var rotor_rpm: float = 0.0
@@ -57,6 +59,7 @@ func _ready() -> void:
 	heli_id = HeliCatalog.clamp_id(GameState.selected_heli)
 	HeliCatalog.apply(self, heli_id)
 	collective = hover_collective
+	_install_loadout(GameState.missile_loadout)
 	HeliBuilder.attach(self, heli_id)
 	_apply_camera()
 	rotor_player = Sfx.play_rotor(self)
@@ -68,6 +71,10 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("camera_toggle"):
 		camera_mode = 1 - camera_mode
 		_apply_camera()
+		get_viewport().set_input_as_handled()
+	var slot := _pylon_from_key(event)
+	if slot >= 0:
+		_selected_pylon = slot
 		get_viewport().set_input_as_handled()
 	if event is InputEventMouseMotion and GameState.mouse_steering and Input.mouse_mode == Input.MOUSE_MODE_CAPTURED:
 		var motion := event as InputEventMouseMotion
@@ -153,10 +160,15 @@ func _fly(delta: float) -> void:
 
 
 func _probe_ground() -> void:
-	if ground_ray and ground_ray.is_colliding():
-		ground_distance = global_position.y - ground_ray.get_collision_point().y
+	if ground_ray == null:
+		ground_distance = maxf(global_position.y, 0.0)
+		return
+	ground_ray.global_basis = Basis.IDENTITY
+	ground_ray.force_raycast_update()
+	if ground_ray.is_colliding():
+		ground_distance = maxf(global_position.y - ground_ray.get_collision_point().y, 0.0)
 	else:
-		ground_distance = 80.0
+		ground_distance = maxf(global_position.y, 0.0)
 
 
 func _spin_rotors(delta: float) -> void:
@@ -187,7 +199,7 @@ func _update_lock(delta: float) -> void:
 			var tgt := node as GroundTarget
 			var to := tgt.global_position + Vector3.UP * 1.2 - origin
 			var dist := to.length()
-			if dist > 1400.0:
+			if dist > 1600.0:
 				continue
 			var ang := aim.angle_to(to.normalized())
 			if ang < best_ang:
@@ -231,22 +243,136 @@ func _fire_cannon() -> void:
 
 
 func _fire_missile() -> void:
-	if missile_cd > 0.0 or missile_ammo <= 0:
+	if missile_cd > 0.0 or _selected_pylon < 0 or _selected_pylon >= _pylons.size():
 		return
-	missile_ammo -= 1
-	missile_cd = missile_interval
+	var slot := _pylons[_selected_pylon]
+	if int(slot["remaining"]) <= 0:
+		return
+	var data := MissileCatalog.spec(str(slot["id"]))
+	slot["remaining"] = int(slot["remaining"]) - 1
+	_pylons[_selected_pylon] = slot
+	missile_ammo = _rounds_left()
+	missile_cd = float(data["shot_cd"]) if str(data["kind"]) == "CLUSTER" else missile_interval
+	var spread := float(data["spread_deg"])
+	var yaw := randf_range(-spread, spread)
+	var pitch := randf_range(-spread, spread) * 0.35
+	_spawn_missile(data, yaw, pitch)
+	Sfx.play_3d(get_parent(), "missile", global_position, -4.0)
+	fired_missile.emit()
+
+
+func _spawn_missile(data: Dictionary, yaw_deg: float, pitch_deg: float) -> void:
 	var spawn: Marker3D = missile_right if pylon_toggle else missile_left
 	pylon_toggle = not pylon_toggle
+	var dir := aim_direction()
+	dir = dir.rotated(global_transform.basis.y, deg_to_rad(yaw_deg))
+	dir = dir.rotated(global_transform.basis.x, deg_to_rad(pitch_deg))
 	var m := Missile.new()
 	m.process_mode = Node.PROCESS_MODE_PAUSABLE
-	m.velocity = aim_direction() * 40.0 + velocity
-	if has_lock():
+	m.damage = float(data["damage"])
+	m.max_range = float(data["range"])
+	m.max_speed = float(data["speed"])
+	m.accel = float(data["accel"])
+	m.guided = bool(data["guided"])
+	m.body_scale = float(data["scale"])
+	m.velocity = dir * float(data["launch_speed"]) + velocity
+	if bool(data["guided"]) and has_lock():
 		m.target = locked_target
-	get_parent().add_child(m)
-	m.global_transform = spawn.global_transform
-	m.global_position = spawn.global_position + aim_direction() * 2.0
-	Sfx.play_3d(get_parent(), "missile", spawn.global_position, -4.0)
-	fired_missile.emit()
+	var parent := get_parent()
+	if parent == null or spawn == null:
+		return
+	parent.add_child(m)
+	m.global_position = spawn.global_position + dir * 2.0
+	if dir.length_squared() > 0.01:
+		m.look_at(m.global_position + dir, Vector3.UP)
+
+
+func _install_loadout(ids: Array) -> void:
+	var src := ids
+	if src.size() != missile_max:
+		src = MissileCatalog.default_for(heli_id)
+	_pylons.clear()
+	for i in missile_max:
+		var id := MissileCatalog.clamp_id(str(src[i]))
+		_pylons.append({
+			"id": id,
+			"remaining": int(MissileCatalog.spec(id)["count"]),
+		})
+	_selected_pylon = 0
+	missile_ammo = _rounds_left()
+
+
+func _restore_pylons(saved: Array) -> void:
+	_pylons.clear()
+	for item in saved:
+		if item is Dictionary:
+			var row: Dictionary = item
+			var id := MissileCatalog.clamp_id(str(row.get("id", "hellfire")))
+			var capacity := int(MissileCatalog.spec(id)["count"])
+			var remaining := capacity
+			if row.has("remaining"):
+				remaining = clampi(int(row["remaining"]), 0, capacity)
+			elif bool(row.get("spent", false)):
+				remaining = 0
+			_pylons.append({"id": id, "remaining": remaining})
+	if _pylons.is_empty():
+		_install_loadout(GameState.missile_loadout)
+		return
+	missile_max = _pylons.size()
+	_selected_pylon = clampi(_selected_pylon, 0, _pylons.size() - 1)
+	missile_ammo = _rounds_left()
+
+
+func _rounds_left() -> int:
+	var n := 0
+	for slot in _pylons:
+		n += int(slot["remaining"])
+	return n
+
+
+func _pylon_from_key(event: InputEvent) -> int:
+	if not event is InputEventKey or not event.pressed or event.echo:
+		return -1
+	var key := event as InputEventKey
+	var code := key.physical_keycode if key.physical_keycode != KEY_NONE else key.keycode
+	var slot := -1
+	if code >= KEY_1 and code <= KEY_9:
+		slot = int(code) - int(KEY_1)
+	elif code >= KEY_KP_1 and code <= KEY_KP_9:
+		slot = int(code) - int(KEY_KP_1)
+	if slot < 0 or slot >= _pylons.size():
+		return -1
+	return slot
+
+
+func hud_stores() -> String:
+	var parts: PackedStringArray = PackedStringArray()
+	for i in _pylons.size():
+		var slot: Dictionary = _pylons[i]
+		var data := MissileCatalog.spec(str(slot["id"]))
+		var tag := "[%d]" % [i + 1] if i == _selected_pylon else str(i + 1)
+		parts.append("%s %s %d/%d" % [tag, str(data["short"]), int(slot["remaining"]), int(data["count"])])
+	return "  ".join(parts)
+
+
+func selected_store() -> Dictionary:
+	if _selected_pylon < 0 or _selected_pylon >= _pylons.size():
+		return {}
+	var slot: Dictionary = _pylons[_selected_pylon]
+	var data := MissileCatalog.spec(str(slot["id"]))
+	return {
+		"index": _selected_pylon + 1,
+		"title": str(data["title"]),
+		"remaining": int(slot["remaining"]),
+		"count": int(data["count"]),
+		"range": float(data["range"]),
+	}
+
+
+func lock_distance_m() -> float:
+	if locked_target == null or not is_instance_valid(locked_target) or not locked_target.alive:
+		return -1.0
+	return global_position.distance_to(locked_target.global_position)
 
 
 func aim_origin() -> Vector3:
@@ -313,6 +439,8 @@ func to_save() -> Dictionary:
 		"collective": collective,
 		"cannon": cannon_ammo,
 		"missiles": missile_ammo,
+		"pylons": _pylons.duplicate(true),
+		"pylon": _selected_pylon,
 		"hull": hull,
 		"camera": camera_mode,
 		"time": flight_time,
@@ -334,7 +462,11 @@ func from_save(data: Dictionary) -> void:
 	velocity = Vector3(float(data.get("vx", 0)), float(data.get("vy", 0)), float(data.get("vz", 0)))
 	collective = float(data.get("collective", hover_collective))
 	cannon_ammo = int(data.get("cannon", cannon_ammo))
-	missile_ammo = int(data.get("missiles", missile_ammo))
+	_selected_pylon = int(data.get("pylon", _selected_pylon))
+	if data.has("pylons") and data["pylons"] is Array:
+		_restore_pylons(data["pylons"])
+	else:
+		missile_ammo = int(data.get("missiles", missile_ammo))
 	hull = float(data.get("hull", 100.0))
 	camera_mode = int(data.get("camera", 0))
 	flight_time = float(data.get("time", 0.0))

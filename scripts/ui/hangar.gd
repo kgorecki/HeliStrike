@@ -1,6 +1,6 @@
 extends Node3D
 
-const MISSION := "res://scenes/world/mission.tscn"
+const ARMING := "res://scenes/ui/arming.tscn"
 const BRIEFING := "res://scenes/ui/briefing.tscn"
 
 var _index: int = 0
@@ -151,7 +151,7 @@ func _build_ui() -> void:
 	next.pressed.connect(func() -> void: _cycle(1))
 	cycle.add_child(next)
 
-	var go := ThemeUtil.button("START MISSION", 280)
+	var go := ThemeUtil.button("SELECT ORDNANCE", 320)
 	go.size_flags_horizontal = Control.SIZE_SHRINK_BEGIN
 	go.pressed.connect(_start)
 	root.add_child(go)
@@ -175,9 +175,9 @@ func _show_current() -> void:
 	_role.text = str(spec["role"])
 	_blurb.text = str(spec["blurb"])
 	_ordnance.text = str(spec["ordnance"])
-	_stats.text = "GUN %d RDS    MSL %d    HULL %d    VNE %d KM/H" % [
+	_stats.text = "GUN %d RDS    PYLONS %d    HULL %d    VNE %d KM/H" % [
 		int(spec["cannon_max"]),
-		int(spec["missile_max"]),
+		int(spec["missile_slots"]),
 		int(spec["hull"]),
 		int(float(spec["max_speed"]) * 3.6),
 	]
@@ -193,6 +193,9 @@ func _start() -> void:
 	Sfx.play_ui()
 	var id := HeliCatalog.IDS[_index]
 	GameState.selected_heli = id
+	var slots := int(HeliCatalog.spec(id)["missile_slots"])
+	if GameState.missile_loadout.size() != slots:
+		GameState.missile_loadout = MissileCatalog.default_for(id)
 	GameState.save_settings()
 	if not GameState.has_session():
 		GameState.start_new_session()
@@ -200,7 +203,7 @@ func _start() -> void:
 	GameState.session["heli"] = {}
 	GameState.session["destroyed_ids"] = []
 	GameState.restore_on_start = false
-	get_tree().change_scene_to_file(MISSION)
+	get_tree().change_scene_to_file(ARMING)
 
 
 func _back() -> void:

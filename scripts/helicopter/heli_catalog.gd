@@ -12,9 +12,9 @@ static func spec(id: String) -> Dictionary:
 				"title": "AH-6 LITTLE BIRD",
 				"role": "LIGHT ATTACK",
 				"blurb": "Night-stalker scout. Tiny, vicious, and hard to hit if you keep it moving.",
-				"ordnance": "M134 minigun  ·  4x light AGM",
+				"ordnance": "M134 minigun  ·  2 pylons",
 				"cannon_max": 800,
-				"missile_max": 4,
+				"missile_slots": 2,
 				"cannon_cd": 0.05,
 				"missile_cd": 0.85,
 				"max_thrust": 18.6,
@@ -33,9 +33,9 @@ static func spec(id: String) -> Dictionary:
 				"title": "BELL 222",
 				"role": "ARMED UTILITY",
 				"blurb": "Twin-engine executive airframe pressed into gunship duty. Fast in a straight line.",
-				"ordnance": "Chin 20mm  ·  6x AGM",
+				"ordnance": "Chin 20mm  ·  3 pylons",
 				"cannon_max": 320,
-				"missile_max": 6,
+				"missile_slots": 3,
 				"cannon_cd": 0.11,
 				"missile_cd": 1.0,
 				"max_thrust": 17.4,
@@ -54,9 +54,9 @@ static func spec(id: String) -> Dictionary:
 				"title": "AH-64E APACHE",
 				"role": "HEAVY ATTACK",
 				"blurb": "Tandem cockpit tank-killer. Best standoff punch and the toughest airframe.",
-				"ordnance": "M230 30mm  ·  8x AGM-114",
+				"ordnance": "M230 30mm  ·  4 pylons",
 				"cannon_max": 450,
-				"missile_max": 8,
+				"missile_slots": 4,
 				"cannon_cd": 0.09,
 				"missile_cd": 1.15,
 				"max_thrust": 16.8,
@@ -87,11 +87,10 @@ static func apply(heli: Helicopter, id: String) -> Dictionary:
 	heli.roll_rate = float(data["roll_rate"])
 	heli.yaw_rate = float(data["yaw_rate"])
 	heli.cannon_max = int(data["cannon_max"])
-	heli.missile_max = int(data["missile_max"])
+	heli.missile_max = int(data["missile_slots"])
 	heli.cannon_interval = float(data["cannon_cd"])
 	heli.missile_interval = float(data["missile_cd"])
 	heli.rotor_spin_rate = float(data["rotor_spin"])
 	heli.hull = float(data["hull"])
 	heli.cannon_ammo = heli.cannon_max
-	heli.missile_ammo = heli.missile_max
 	return data

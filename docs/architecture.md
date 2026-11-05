@@ -18,6 +18,7 @@ flowchart TB
     Menu["main_menu.tscn"]
     Brief["briefing.tscn"]
     Hangar["hangar.tscn"]
+    Arming["arming.tscn"]
     Mission["mission.tscn"]
   end
 
@@ -37,7 +38,8 @@ flowchart TB
   PG --> Menu
   Menu --> Brief
   Brief --> Hangar
-  Hangar --> Mission
+  Hangar --> Arming
+  Arming --> Mission
   Menu -->|Continue| Mission
   Mission --> WB
   Mission --> Heli
@@ -60,10 +62,12 @@ flowchart TB
 flowchart LR
   Menu["Main menu"] -->|New Game| Brief["Briefing"]
   Brief -->|Select Aircraft| Hangar["Hangar"]
-  Hangar -->|Launch| Mission["Mission"]
+  Hangar -->|Select Ordnance| Arming["Arming"]
+  Arming -->|Launch| Mission["Mission"]
   Menu -->|Continue| Mission
   Brief -->|Back| Menu
   Hangar -->|Back| Brief
+  Arming -->|Back| Hangar
   Mission -->|Abort or end| Menu
 ```
 
@@ -72,9 +76,10 @@ flowchart LR
 | `scenes/ui/main_menu.tscn` | `Node3D` | Preview helicopter, new game, continue, save, settings, quit |
 | `scenes/ui/briefing.tscn` | `Control` | Operation Iron Hawk text and schematic map |
 | `scenes/ui/hangar.tscn` | `Node3D` | Cycle the three airframes and commit `selected_heli` |
+| `scenes/ui/arming.tscn` | `Control` | Mount one store on each pylon, then launch |
 | `scenes/world/mission.tscn` | `Node3D` | Terrain, aircraft, targets, HUD, pause, win and fail |
 
-Continue loads the in-memory session if one exists, otherwise the disk save, then opens the mission directly. A new game always goes briefing, then hangar, then a fresh mission. Launching from the hangar clears `destroyed_ids` and the saved helicopter pose.
+Continue loads the in-memory session if one exists, otherwise the disk save, then opens the mission directly. A new game always goes briefing, then hangar, then ordnance, then a fresh mission. Entering the hangar clears `destroyed_ids` and the saved helicopter pose. Pylon count comes from the airframe: Defender 2, Bell 222 3, Apache 4.
 
 ## Key modules
 
@@ -94,7 +99,8 @@ Autoload singleton. Synthesizes 8-bit `AudioStreamWAV` clips at startup (rotor l
 
 | Script | Role |
 | --- | --- |
-| `HeliCatalog` | Static specs for `apache`, `defender`, and `bell222`: thrust, speed, ammo, hull, rotor rate, copy |
+| `HeliCatalog` | Static specs for `apache`, `defender`, and `bell222`: thrust, speed, pylon count, hull, rotor rate, copy |
+| `MissileCatalog` | Stores mounted on those pylons: single or cluster, damage, range, guidance |
 | `HeliBuilder` | Procedural meshes. `build_model()` is the menu and hangar preview. `attach()` parents the same airframe onto a live `Helicopter` and wires cameras, hardpoints, collision, and the ground ray |
 | `Helicopter` | `CharacterBody3D` flight, weapons, lock-on, damage, and save snapshot |
 
@@ -105,8 +111,8 @@ Flight step (`Helicopter._physics_process`):
 3. Yaw from `yaw_left` / `yaw_right`.
 4. Thrust along local up, gravity, ground-effect boost below 8 m, and a speed cap from the catalog.
 5. Ground probe via `RayCast3D`. A hard impact (`speed > 22` and `velocity.y < -8` while near the ground) destroys the aircraft.
-6. Lock the nearest living `ground_target` inside a 7° cone and 1400 m. Lock completes at 0.75 s.
-7. Cannon is held-fire. Missiles are single-shot and home only when `has_lock()` is true.
+6. Lock the nearest living `ground_target` inside a 7° cone and 1600 m. Lock completes at 0.75 s.
+7. Cannon is held-fire. Keys 1-4 select a pylon. Each missile trigger fires one round from that pylon, including rockets left in a cluster. Guided stores home only when `has_lock()` is true. Unguided stores fly the aim point plus a small spread, and every round dies at its own range.
 
 Catalog `pitch_rate` and `roll_rate` are stored on the aircraft. The flight step currently uses fixed cyclic rates (`0.95` pitch, `1.15` roll) and only reads catalog values for yaw, thrust, speed, weapons, and rotor spin.
 
@@ -128,9 +134,9 @@ Catalog `pitch_rate` and `roll_rate` are stored on the aircraft. The flight step
 | --- | --- | --- |
 | `GroundTarget` | `StaticBody3D` | `Kind` enum: tank, SAM, radar, bunker. `apply_damage()` hides and frees the node at 0 HP |
 | `CannonRound` | `Area3D` | Ballistic, 18 damage, 2.2 s life |
-| `Missile` | `Area3D` | Steers toward a locked target, 120 damage, 8 s life, 280 m/s cap |
+| `Missile` | `Area3D` | Damage, speed, guidance, and max range come from `MissileCatalog` |
 | `Explosion` | `Node3D` | One-shot `GPUParticles3D` plus a short light and the explosion clip |
-| `Hud` | `CanvasLayer` | `_draw` overlay: compass, altitude, speed, collective, ammo, lock box, target count |
+| `Hud` | `CanvasLayer` | Live heading, hull, altitude, speed, selected store, rounds left, lock range, compass, collective, and radar |
 
 ### UI chrome
 
@@ -179,7 +185,8 @@ Session fields written by the mission:
 | `time_sec` | Mission clock, advanced in `Mission._process` |
 | `destroyed_ids` | Target ids already removed |
 | `heli_id` | `apache`, `defender`, or `bell222` |
-| `heli` | Pose, basis, velocity, collective, ammo, hull, camera, flight time |
+| `loadout` | Missile id per pylon, chosen on the ordnance screen |
+| `heli` | Pose, basis, velocity, collective, ammo, rounds left on each pylon, selected pylon, hull, camera, flight time |
 | `saved_at` | Added only when writing to disk |
 
 `restore_on_start` is true only when a session was loaded from disk and contains a helicopter snapshot. An in-memory continue also restores when `heli` is non-empty.
@@ -215,7 +222,7 @@ HeliStrike/
   icon.svg
   docs/                  Project documentation
   scenes/
-    ui/                  main_menu, briefing, hangar
+    ui/                  main_menu, briefing, hangar, arming
     world/               mission
   scripts/
     autoload/            game_state.gd
@@ -223,9 +230,9 @@ HeliStrike/
     helicopter/          helicopter.gd, heli_builder.gd, heli_catalog.gd
     world/               mission.gd, world_builder.gd
     targets/             ground_target.gd
-    weapons/             cannon_round.gd, missile.gd
+    weapons/             cannon_round.gd, missile.gd, missile_catalog.gd
     fx/                  explosion.gd
-    ui/                  main_menu, briefing, hangar, hud, controls_screen, theme_util
+    ui/                  main_menu, briefing, hangar, arming, hud, controls_screen, theme_util
 ```
 
 `.godot/` is the editor cache and is gitignored. Do not commit it.

@@ -27,6 +27,8 @@ var rebinding: bool = false
 ## action id -> array of 2 serialized bind specs (or null)
 var bindings: Dictionary = {}
 var selected_heli: String = "apache"
+## Missile id per pylon. Length matches HeliCatalog missile_slots.
+var missile_loadout: Array = []
 
 ## In-memory mission snapshot. Survives abort so Continue / Save still work.
 var session: Dictionary = {}
@@ -113,6 +115,8 @@ func load_from_disk() -> bool:
 	session["active"] = true
 	restore_on_start = true
 	selected_heli = HeliCatalog.clamp_id(str(session.get("heli_id", selected_heli)))
+	if session.has("loadout") and session["loadout"] is Array:
+		missile_loadout = (session["loadout"] as Array).duplicate()
 	return true
 
 

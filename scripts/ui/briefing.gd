@@ -48,13 +48,13 @@ and the command bunker.
 
 EXECUTION
 1. Lift from the pad. Proceed north toward the valley.
-2. Engage at standoff with AGM-114 Hellfire missiles.
-3. Use the 30mm chain gun for close-in and soft targets.
+2. Mount stores on the pylons. Guided rounds need a lock. Pods do not.
+3. Use the cannon for close-in and soft targets.
 4. RTB when the area is clear.
 
 SUPPORT / ASSETS
 Aircraft: assigned at the FARP hangar
-Ordnance: depends on airframe
+Ordnance: mounted after the aircraft is chosen
 Wx: Clear, wind light and variable"""
 
 	var text := ThemeUtil.label(body, 15, ThemeUtil.TEXT)

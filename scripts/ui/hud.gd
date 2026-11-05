@@ -15,6 +15,7 @@ func _ready() -> void:
 	_root.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	add_child(_root)
 	_root.draw.connect(_on_draw)
+	ThemeUtil.hud_font().get_string_size("HDG ALT SPD HULL GUN MSL RNG LOCK 0123456789 KM/H", HORIZONTAL_ALIGNMENT_LEFT, -1, 16)
 
 
 func _process(delta: float) -> void:
@@ -37,14 +38,14 @@ func _on_draw() -> void:
 	var cx := r.size.x * 0.5
 	var cy := r.size.y * 0.5
 	var hud := ThemeUtil.HUD
-	var font := ThemeUtil.mono()
+	var font := ThemeUtil.hud_font()
 
 	if heli.camera_mode == 0:
 		_canopy(_root, r)
 	_crosshair(_root, Vector2(cx, cy), hud)
 	_draw_compass(_root, Vector2(cx, 36), heli.heading_deg(), font, hud)
-	_draw_tape(_root, Vector2(72, cy), "ALT", "%d" % int(heli.altitude_agl()), font, hud, true)
-	_draw_tape(_root, Vector2(r.size.x - 72, cy), "SPD", "%d" % int(heli.airspeed_kms()), font, hud, false)
+	_draw_flight(_root, Vector2(28, 88), font, hud)
+	_draw_weapons(_root, Vector2(r.size.x - 320, 88), font, hud)
 
 	var col_h := 140.0
 	var col_y := cy + 40.0
@@ -56,18 +57,7 @@ func _on_draw() -> void:
 
 	var cam_name := "COCKPIT" if heli.camera_mode == 0 else "CHASE"
 	_root.draw_string(font, Vector2(24, r.size.y - 28), "CAM %s   [C]" % cam_name, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, hud)
-	_root.draw_string(font, Vector2(24, 28), "HDG %03d" % int(heli.heading_deg()), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, hud)
-	_root.draw_string(font, Vector2(24, 50), "HULL %d%%" % int(heli.hull), HORIZONTAL_ALIGNMENT_LEFT, -1, 14, hud if heli.hull > 35.0 else ThemeUtil.DANGER)
-
-	var ammo := "GUN %03d    MSL  %d/%d" % [heli.cannon_ammo, heli.missile_ammo, heli.missile_max]
-	_root.draw_string(font, Vector2(r.size.x - 280, r.size.y - 28), ammo, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, hud)
-	var tgt := "TGT  %d / %d" % [remaining, total]
-	_root.draw_string(font, Vector2(r.size.x - 200, 28), tgt, HORIZONTAL_ALIGNMENT_LEFT, -1, 16, ThemeUtil.AMBER)
-
-	if heli.locked_target and is_instance_valid(heli.locked_target):
-		var lock_txt := "LOCK" if heli.has_lock() else "LOCKING"
-		var lock_col := ThemeUtil.DANGER if heli.has_lock() else ThemeUtil.AMBER
-		_root.draw_string(font, Vector2(cx - 30, cy + 48), lock_txt, HORIZONTAL_ALIGNMENT_LEFT, -1, 14, lock_col)
+	_root.draw_string(font, Vector2(cx - 260, r.size.y - 28), heli.hud_stores(), HORIZONTAL_ALIGNMENT_LEFT, -1, 15, hud)
 
 	if message != "":
 		_root.draw_string(font, Vector2(cx - 180, cy - 90), message, HORIZONTAL_ALIGNMENT_LEFT, -1, 22, ThemeUtil.AMBER)
@@ -120,12 +110,58 @@ func _heading_label(h: float) -> String:
 			return "%03d" % d
 
 
-func _draw_tape(c: Control, p: Vector2, title: String, value: String, font: Font, color: Color, left: bool) -> void:
-	var w := 70.0
-	var x := p.x - w if left else p.x
-	c.draw_rect(Rect2(x, p.y - 36, w, 52), Color(0, 0, 0, 0.4))
-	c.draw_string(font, Vector2(x + 8, p.y - 16), title, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color)
-	c.draw_string(font, Vector2(x + 8, p.y + 8), value, HORIZONTAL_ALIGNMENT_LEFT, -1, 20, color)
+func _draw_flight(c: Control, origin: Vector2, font: Font, hud: Color) -> void:
+	var hull_col := hud if heli.hull > 35.0 else ThemeUtil.DANGER
+	var rows: Array[Dictionary] = [
+		{"text": "HDG  %03d" % int(heli.heading_deg()), "color": hud},
+		{"text": "HULL %d%%" % int(heli.hull), "color": hull_col},
+		{"text": "ALT  %d M" % int(heli.altitude_agl()), "color": hud},
+		{"text": "SPD  %d KM/H" % int(heli.airspeed_kms()), "color": hud},
+	]
+	_draw_rows(c, origin, rows, font)
+
+
+func _draw_weapons(c: Control, origin: Vector2, font: Font, hud: Color) -> void:
+	var store := heli.selected_store()
+	var rows: Array[Dictionary] = [
+		{"text": "TGT  %d / %d" % [remaining, total], "color": ThemeUtil.AMBER},
+		{"text": "GUN  %03d" % heli.cannon_ammo, "color": hud},
+	]
+	if store.is_empty():
+		rows.append({"text": "SEL  NONE", "color": ThemeUtil.MUTED})
+		rows.append({"text": "MSL  0", "color": ThemeUtil.MUTED})
+	else:
+		rows.append({
+			"text": "SEL  %d  %s" % [int(store["index"]), str(store["title"])],
+			"color": hud,
+		})
+		rows.append({
+			"text": "MSL  %d / %d" % [int(store["remaining"]), int(store["count"])],
+			"color": hud if int(store["remaining"]) > 0 else ThemeUtil.DANGER,
+		})
+	var dist := heli.lock_distance_m()
+	if dist < 0.0 or heli.locked_target == null:
+		rows.append({"text": "RNG  NO LOCK", "color": ThemeUtil.MUTED})
+	else:
+		var reach := float(store.get("range", 0.0)) if not store.is_empty() else dist
+		var in_reach := dist <= reach
+		var state := "LOCK" if heli.has_lock() else "LOCKING"
+		rows.append({
+			"text": "RNG  %d M  %s" % [int(dist), heli.locked_target.label_text()],
+			"color": hud if in_reach else ThemeUtil.DANGER,
+		})
+		rows.append({
+			"text": "     %s" % state,
+			"color": ThemeUtil.DANGER if heli.has_lock() else ThemeUtil.AMBER,
+		})
+	_draw_rows(c, origin, rows, font)
+
+
+func _draw_rows(c: Control, origin: Vector2, rows: Array[Dictionary], font: Font) -> void:
+	var y := origin.y
+	for row in rows:
+		c.draw_string(font, Vector2(origin.x, y), str(row["text"]), HORIZONTAL_ALIGNMENT_LEFT, -1, 16, row["color"])
+		y += 22.0
 
 
 func _draw_targets(c: Control, font: Font) -> void:
@@ -155,29 +191,37 @@ func _draw_targets(c: Control, font: Font) -> void:
 		c.draw_line(sp + Vector2(-s, s), sp + Vector2(-s, s * 0.3), col, 1.5)
 		c.draw_line(sp + Vector2(s, s), sp + Vector2(s * 0.3, s), col, 1.5)
 		c.draw_line(sp + Vector2(s, s), sp + Vector2(s, s * 0.3), col, 1.5)
-		c.draw_string(font, sp + Vector2(s + 4, -s), tgt.label_text(), HORIZONTAL_ALIGNMENT_LEFT, -1, 12, col)
+		var caption := tgt.label_text()
+		if locked:
+			var meters := int(heli.global_position.distance_to(tgt.global_position))
+			caption = "%s  %d M" % [caption, meters]
+		c.draw_string(font, sp + Vector2(s + 4, -s), caption, HORIZONTAL_ALIGNMENT_LEFT, -1, 12, col)
 
 
 func _draw_radar(c: Control, p: Vector2, font: Font) -> void:
 	var radius := 56.0
+	var range_m := 1000.0
 	c.draw_circle(p, radius, Color(0, 0, 0, 0.45))
 	c.draw_arc(p, radius, 0, TAU, 40, ThemeUtil.HUD, 1.0)
 	c.draw_arc(p, radius * 0.5, 0, TAU, 32, Color(ThemeUtil.HUD, 0.35), 1.0)
 	c.draw_line(p + Vector2(0, -radius), p + Vector2(0, radius), Color(ThemeUtil.HUD, 0.3), 1)
 	c.draw_line(p + Vector2(-radius, 0), p + Vector2(radius, 0), Color(ThemeUtil.HUD, 0.3), 1)
-	c.draw_string(font, p + Vector2(-18, radius + 16), "RDR", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ThemeUtil.HUD)
+	c.draw_string(font, p + Vector2(-22, radius + 16), "RDR 1 KM", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ThemeUtil.HUD)
 	if heli == null:
 		return
 	var yaw := heli.global_rotation.y
+	var scale := radius / range_m
 	for node in get_tree().get_nodes_in_group("ground_target"):
 		if not node is GroundTarget:
 			continue
 		var tgt := node as GroundTarget
+		if not tgt.alive:
+			continue
 		var delta := tgt.global_position - heli.global_position
 		var local := Vector2(delta.x, delta.z).rotated(yaw)
-		var scale := 0.12
 		var pt := p + Vector2(local.x, local.y) * scale
 		if pt.distance_to(p) > radius - 4.0:
 			pt = p + (pt - p).normalized() * (radius - 4.0)
-		c.draw_circle(pt, 3, ThemeUtil.DANGER)
-	c.draw_circle(p, 3, ThemeUtil.AMBER)
+		var locked := heli.locked_target == tgt
+		c.draw_circle(pt, 4.0 if locked else 3.0, ThemeUtil.DANGER if locked else ThemeUtil.AMBER)
+	c.draw_circle(p, 3, ThemeUtil.HUD)
