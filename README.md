@@ -70,3 +70,7 @@ Meshes, the heightmap, and sound effects are generated at runtime. `icon.svg` is
 - [Architecture](docs/architecture.md) — modules, scene flow, combat, and saves
 - [Tech stack](docs/tech-stack.md) — engine choices and code patterns
 - [Setup](docs/setup.md) — editor, CLI, user-data paths, and export
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
